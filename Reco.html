@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   body, html { margin: 0; padding: 0; overflow: hidden; background: black; }
   video {
+    position: absolute;
     width: 100%;
     height: auto;
+    transform: scaleX(-1); /* انعكاس للمرايا */
   }
   #overlayCircle {
     position: absolute;
@@ -13,7 +16,7 @@
     height: 100px;
     border-radius: 50%;
     border: 3px solid red;
-    pointer-events: none; /* يسمح باللمس من خلف الدائرة */
+    pointer-events: none;
   }
 </style>
 </head>
@@ -21,26 +24,43 @@
 <video id="video" autoplay muted playsinline></video>
 <div id="overlayCircle"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
 <script>
-  const video = document.getElementById("video");
-  const circle = document.getElementById("overlayCircle");
+const video = document.getElementById("video");
+const circle = document.getElementById("overlayCircle");
 
-  // تشغيل كاميرا الهاتف
-  navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-    video.srcObject = stream;
-  });
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  video.srcObject = stream;
+  return new Promise(resolve => video.onloadedmetadata = resolve);
+}
 
-  // تحريك الدائرة باللمس
-  let dragging = false;
-  circle.addEventListener('touchstart', e => { dragging = true; });
-  circle.addEventListener('touchend', e => { dragging = false; });
-  circle.addEventListener('touchmove', e => {
-    if(dragging) {
-      const touch = e.touches[0];
-      circle.style.left = (touch.clientX - 50) + 'px';
-      circle.style.top = (touch.clientY - 50) + 'px';
-    }
-  });
+async function init() {
+  await startCamera();
+
+  const model = await cocoSsd.load();
+  detectFrame(model);
+}
+
+async function detectFrame(model) {
+  const predictions = await model.detect(video);
+  
+  if(predictions.length > 0) {
+    // نختار أول هدف مكتشف (تقدر تحدد نوع معين مثل 'person' أو 'sports ball')
+    const target = predictions[0].bbox; // [x, y, width, height]
+    const [x, y, w, h] = target;
+
+    // نحرك الدائرة لمركز الهدف
+    circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
+    circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
+  }
+
+  requestAnimationFrame(() => detectFrame(model));
+}
+
+init();
 </script>
 </body>
 </html>
