@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تتبع جسم بالكاميرا</title>
 <style>
-  body, html { margin: 0; padding: 0; overflow: hidden; background: black; }
+  body, html { margin: 0; padding: 0; overflow: hidden; background: black; font-family: sans-serif; }
   video {
     position: absolute;
     width: 100%;
@@ -17,18 +19,15 @@
     border-radius: 50%;
     border: 3px solid red;
     pointer-events: none;
-    transition: left 0.05s linear, top 0.05s linear; /* حركة سلسة */
   }
-  #controls {
+  #selectorContainer {
     position: absolute;
     top: 10px;
     left: 10px;
+    background: rgba(255,255,255,0.8);
+    padding: 5px 10px;
+    border-radius: 8px;
     z-index: 10000;
-    color: white;
-    font-family: sans-serif;
-    background: rgba(0,0,0,0.5);
-    padding: 8px;
-    border-radius: 6px;
   }
 </style>
 </head>
@@ -36,15 +35,15 @@
 <video id="video" autoplay muted playsinline></video>
 <div id="overlayCircle"></div>
 
-<div id="controls">
-  <label for="targetSelect">اختار الجسم:</label>
-  <select id="targetSelect">
-    <option value="person">Person</option>
-    <option value="sports ball">Sports Ball</option>
-    <option value="cat">Cat</option>
-    <option value="dog">Dog</option>
-    <option value="bottle">Bottle</option>
-    <option value="chair">Chair</option>
+<div id="selectorContainer">
+  تتبع:
+  <select id="objectSelector">
+    <option value="person">شخص</option>
+    <option value="sports ball">كرة</option>
+    <option value="cup">كوب</option>
+    <option value="teddy bear">دمية</option>
+    <option value="cat">قطة</option>
+    <option value="dog">كلب</option>
   </select>
 </div>
 
@@ -54,7 +53,14 @@
 <script>
 const video = document.getElementById("video");
 const circle = document.getElementById("overlayCircle");
-const targetSelect = document.getElementById("targetSelect");
+const selector = document.getElementById("objectSelector");
+
+let selectedClass = selector.value;
+
+// تحديث الجسم عند تغيير الاختيار
+selector.addEventListener("change", () => {
+  selectedClass = selector.value;
+});
 
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -70,14 +76,12 @@ async function init() {
 
 async function detectFrame(model) {
   const predictions = await model.detect(video);
-  const targetClass = targetSelect.value; // الجسم المطلوب تتبعه
-  const filtered = predictions.filter(p => p.class === targetClass);
+  
+  // البحث عن أول جسم مطابق للاختيار
+  const target = predictions.find(p => p.class === selectedClass);
 
-  if(filtered.length > 0) {
-    const target = filtered[0].bbox; // [x, y, width, height]
-    const [x, y, w, h] = target;
-
-    // تحريك الدائرة لمركز الجسم
+  if(target) {
+    const [x, y, w, h] = target.bbox;
     circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
     circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
   }
