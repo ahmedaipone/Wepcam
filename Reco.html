@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع قوي للأجسام</title>
+<title>تتبع قوي للأجسام باللمس</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
   #video { position:absolute; width:100%; height:auto; }
@@ -67,7 +67,7 @@ document.getElementById('videoFile').addEventListener('change', async (e)=>{
   }
 });
 
-// تحريك الدائرة يدويًا لتحديد الجسم
+// السحب بالماوس
 let dragging = false;
 circle.addEventListener('mousedown', ()=>dragging=true);
 circle.addEventListener('mouseup', ()=>dragging=false);
@@ -79,14 +79,24 @@ circle.addEventListener('mousemove', e=>{
   }
 });
 
+// السحب باللمس
+circle.addEventListener('touchstart', e => { dragging = true; });
+circle.addEventListener('touchend', e => { dragging = false; });
+circle.addEventListener('touchcancel', e => { dragging = false; });
+circle.addEventListener('touchmove', e => {
+  if(dragging && !startTracking){
+    const touch = e.touches[0];
+    circle.style.left = touch.pageX - circle.offsetWidth/2 + 'px';
+    circle.style.top  = touch.pageY - circle.offsetHeight/2 + 'px';
+  }
+});
+
 // بدء التتبع
 document.getElementById('startTrackBtn').addEventListener('click', async ()=>{
   startTracking = true;
-  // احصل على مركز الدائرة
   const x = circle.offsetLeft + circle.offsetWidth/2;
   const y = circle.offsetTop + circle.offsetHeight/2;
   
-  // ابحث عن أقرب جسم باستخدام Coco-SSD
   const predictions = await model.detect(video);
   let bestBox = null;
   let minDist = Infinity;
@@ -103,7 +113,6 @@ document.getElementById('startTrackBtn').addEventListener('click', async ()=>{
   
   if(bestBox){
     const [bx,by,bw,bh] = bestBox;
-    // إعداد TrackerCSRT
     let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
     videoCap.read(src);
     tracker = new cv.TrackerCSRT();
