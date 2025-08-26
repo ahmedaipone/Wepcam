@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع يدوي + تلقائي</title>
+<title>تتبع قوي للأجسام</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
   #video { position:absolute; width:100%; height:auto; }
@@ -38,14 +38,17 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 
 <script>
 let video = document.getElementById('video');
 let circle = document.getElementById('overlayCircle');
 let startTracking = false;
 let model = null;
+let tracker = null;
+let videoCap = null;
 
-// تعديل اللون والحجم
+// اللون والحجم
 document.getElementById('circleColor').addEventListener('input', e => circle.style.borderColor = e.target.value);
 document.getElementById('circleSize').addEventListener('input', e => {
   let size = parseInt(e.target.value);
@@ -59,11 +62,12 @@ document.getElementById('videoFile').addEventListener('change', async (e)=>{
   if(file){
     video.src = URL.createObjectURL(file);
     await video.play();
+    videoCap = new cv.VideoCapture(video);
     if(!model) model = await cocoSsd.load();
   }
 });
 
-// سحب الدائرة باللمس/الفأرة لتحديد الجسم
+// تحريك الدائرة يدويًا لتحديد الجسم
 let dragging = false;
 circle.addEventListener('mousedown', ()=>dragging=true);
 circle.addEventListener('mouseup', ()=>dragging=false);
@@ -75,47 +79,64 @@ circle.addEventListener('mousemove', e=>{
   }
 });
 
-// تفعيل التتبع
-document.getElementById('startTrackBtn').addEventListener('click', ()=>{
+// بدء التتبع
+document.getElementById('startTrackBtn').addEventListener('click', async ()=>{
   startTracking = true;
-  detectFrame();
+  // احصل على مركز الدائرة
+  const x = circle.offsetLeft + circle.offsetWidth/2;
+  const y = circle.offsetTop + circle.offsetHeight/2;
+  
+  // ابحث عن أقرب جسم باستخدام Coco-SSD
+  const predictions = await model.detect(video);
+  let bestBox = null;
+  let minDist = Infinity;
+  for(let p of predictions){
+    const [bx,by,bw,bh] = p.bbox;
+    const cx = bx + bw/2;
+    const cy = by + bh/2;
+    const dist = Math.hypot(cx - x, cy - y);
+    if(dist < minDist){
+      minDist = dist;
+      bestBox = p.bbox;
+    }
+  }
+  
+  if(bestBox){
+    const [bx,by,bw,bh] = bestBox;
+    // إعداد TrackerCSRT
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    tracker = new cv.TrackerCSRT();
+    let rect = new cv.Rect(bx, by, bw, bh);
+    tracker.init(src, rect);
+    src.delete();
+  }
+
+  trackLoop();
 });
 
-// تتبع الجسم الأقرب للدائرة
-async function detectFrame(){
-  if(video.paused || video.ended) {
-    requestAnimationFrame(detectFrame);
+// حلقة التتبع
+function trackLoop(){
+  if(video.paused || video.ended){
+    requestAnimationFrame(trackLoop);
     return;
   }
   
-  if(startTracking){
-    const predictions = await model.detect(video);
-    let bestBox = null;
-    const circleCenterX = circle.offsetLeft + circle.offsetWidth/2;
-    const circleCenterY = circle.offsetTop + circle.offsetHeight/2;
-
-    // نختار أقرب جسم لمكان الدائرة
-    let minDist = Infinity;
-    for(let p of predictions){
-      const [x,y,w,h] = p.bbox;
-      const cx = x + w/2;
-      const cy = y + h/2;
-      const dist = Math.hypot(cx - circleCenterX, cy - circleCenterY);
-      if(dist < minDist){
-        minDist = dist;
-        bestBox = p.bbox;
-      }
+  if(tracker){
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    let rect = new cv.Rect();
+    let ok = tracker.update(src, rect);
+    if(ok){
+      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
+      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
     }
-
-    if(bestBox){
-      let [x,y,w,h] = bestBox;
-      circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
-      circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
-    }
+    src.delete();
   }
-
-  requestAnimationFrame(detectFrame);
+  
+  requestAnimationFrame(trackLoop);
 }
 </script>
+
 </body>
 </html>
