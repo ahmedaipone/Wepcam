@@ -3,105 +3,113 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع جسم على فيديو</title>
+<title>تتبع الأجسام</title>
 <style>
-  body, html { margin: 0; padding: 0; overflow: hidden; background: black; font-family: sans-serif; }
-  video {
-    position: absolute;
-    width: 100%;
-    height: auto;
-    top: 0;
-    left: 0;
-  }
+  body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family: sans-serif; color:white; }
+  #video { position:absolute; width:100%; height:auto; }
   #overlayCircle {
-    position: absolute;
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
-    border: 3px solid red;
-    pointer-events: none;
+    position:absolute;
+    width:100px;
+    height:100px;
+    border-radius:50%;
+    border:4px solid red;
+    pointer-events:none;
+    z-index:9999;
   }
-  #controls {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    background: rgba(255,255,255,0.8);
-    padding: 5px 10px;
-    border-radius: 8px;
-    z-index: 10000;
-  }
+  #controls { position:fixed; top:10px; left:10px; z-index:10000; }
+  select, input { padding:5px; margin:5px; }
 </style>
 </head>
 <body>
 
 <div id="controls">
-  اختر الفيديو: <input type="file" id="videoInput" accept="video/*"><br><br>
-  تتبع: 
-  <select id="objectSelector">
-    <option value="person">شخص</option>
-    <option value="sports ball">كرة</option>
+  <input type="file" id="videoFile" accept="video/*"><br>
+  <label>اختر الجسم للتتبع: </label>
+  <select id="targetSelect">
     <option value="cup">كوب</option>
-    <option value="teddy bear">دمية</option>
-    <option value="cat">قطة</option>
-    <option value="dog">كلب</option>
+    <option value="person">وجه</option>
+    <option value="doll">دمية</option>
+    <option value="sports ball">كرة</option>
+    <option value="car">سيارة</option>
+    <option value="cat">حيوان</option>
   </select>
+  <button id="startBtn">ابدأ التتبع</button>
 </div>
 
-<video id="video" autoplay muted playsinline></video>
+<video id="video" playsinline></video>
 <div id="overlayCircle"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 
 <script>
-const video = document.getElementById("video");
-const circle = document.getElementById("overlayCircle");
-const selector = document.getElementById("objectSelector");
-const videoInput = document.getElementById("videoInput");
+let video = document.getElementById('video');
+let circle = document.getElementById('overlayCircle');
+let targetClass = 'cup';
+let tracker = null;
+let model = null;
 
-let selectedClass = selector.value;
-
-selector.addEventListener("change", () => {
-  selectedClass = selector.value;
+document.getElementById('targetSelect').addEventListener('change', (e)=>{
+  targetClass = e.target.value;
 });
 
-let model;
-
-// تحميل نموذج Coco-SSD
-cocoSsd.load().then(loadedModel => {
-  model = loadedModel;
-});
-
-// عند اختيار فيديو
-videoInput.addEventListener("change", (e) => {
+document.getElementById('videoFile').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  video.src = url;
-  video.play();
-  video.onloadeddata = () => {
-    detectFrame();
+  if(file){
+    video.src = URL.createObjectURL(file);
+    await video.play();
   }
 });
 
-// دالة التتبع
-async function detectFrame() {
-  if(video.paused || video.ended || !model) {
-    requestAnimationFrame(detectFrame);
-    return;
-  }
+document.getElementById('startBtn').addEventListener('click', async ()=>{
+  if(!model) model = await cocoSsd.load();
+  detectAndTrack();
+});
+
+async function detectAndTrack(){
+  if(video.paused || video.ended) return;
 
   const predictions = await model.detect(video);
+  let targetBox = null;
 
-  const target = predictions.find(p => p.class === selectedClass);
-
-  if(target) {
-    const [x, y, w, h] = target.bbox;
-    circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
-    circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
+  // ابحث عن الجسم المطلوب
+  for(let p of predictions){
+    if(p.class === targetClass){
+      targetBox = p.bbox; // [x,y,w,h]
+      break;
+    }
   }
 
-  requestAnimationFrame(detectFrame);
+  if(targetBox){
+    // ابدأ التتبع باستخدام OpenCV
+    if(!tracker){
+      let [x,y,w,h] = targetBox;
+      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+      let cap = new cv.VideoCapture(video);
+      cap.read(src);
+      tracker = new cv.TrackerCSRT();
+      let rect = new cv.Rect(x,y,w,h);
+      tracker.init(src, rect);
+      src.delete();
+    }
+  }
+
+  // تتبع بين الإطارات
+  if(tracker){
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    let cap = new cv.VideoCapture(video);
+    cap.read(src);
+    let rect = new cv.Rect();
+    let ok = tracker.update(src, rect);
+    if(ok){
+      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
+      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
+    }
+    src.delete();
+  }
+
+  requestAnimationFrame(detectAndTrack);
 }
 </script>
 </body>
