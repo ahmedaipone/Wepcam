@@ -3,219 +3,119 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع أي عنصر في أي موقع</title>
+<title>تتبع أي جسم على أي موقع</title>
 <style>
-  body, html {
-    margin:0; padding:0; overflow:hidden; font-family:sans-serif; background:#111; color:white;
-  }
+  body, html { margin:0; padding:0; font-family:sans-serif; overflow:hidden; background:#000; }
   #controls {
-    position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.7); padding:10px; border-radius:5px;
+    position:fixed; top:10px; left:10px; z-index:9999; background:rgba(0,0,0,0.7);
+    color:white; padding:10px; border-radius:5px;
   }
-  input, button { margin:5px; padding:5px; }
-  #siteFrame {
-    position:absolute; top:0; left:0; width:100%; height:100%; border:none;
-  }
+  select, input, button { margin:5px; padding:5px; }
   #overlayCircle {
-    position:absolute; width:60px; height:60px; border:3px solid red; border-radius:50%;
-    z-index:10001; pointer-events:auto; cursor:grab;
-    transition: all 0.05s linear;
+    position:absolute; width:60px; height:60px;
+    border-radius:50%; border:3px solid red;
+    pointer-events:none; z-index:10000; transition:all 0.05s linear;
   }
 </style>
 </head>
 <body>
 
 <div id="controls">
-  <input type="text" id="siteURL" placeholder="ضع رابط الموقع هنا">
-  <button id="loadSite">افتح الموقع</button>
-  <button id="startTracking">ابدأ التتبع</button>
+  <label>اختر الجسم للتتبع:</label>
+  <select id="targetSelect">
+    <option value="cup">كوب</option>
+    <option value="person">وجه</option>
+    <option value="doll">دمية</option>
+    <option value="sports ball">كرة</option>
+    <option value="car">سيارة</option>
+    <option value="cat">حيوان</option>
+  </select>
   <input type="color" id="circleColor" value="#ff0000">
+  <label>حجم الدائرة:</label>
+  <input type="range" id="circleSize" min="40" max="120" value="60">
+  <button id="startTrack">ابدأ التتبع</button>
 </div>
 
-<iframe id="siteFrame"></iframe>
 <div id="overlayCircle"></div>
+
+<iframe id="siteFrame" src="https://www.youtube.com" style="width:100%;height:100vh;border:none;"></iframe>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <script>
-const iframe = document.getElementById('siteFrame');
-const circle = document.getElementById('overlayCircle');
-const siteURL = document.getElementById('siteURL');
-const loadSiteBtn = document.getElementById('loadSite');
-const startTrackingBtn = document.getElementById('startTracking');
+const overlay = document.getElementById('overlayCircle');
+const targetSelect = document.getElementById('targetSelect');
 const circleColor = document.getElementById('circleColor');
+const circleSize = document.getElementById('circleSize');
+const startBtn = document.getElementById('startTrack');
+const iframe = document.getElementById('siteFrame');
 
 let model = null;
+let targetClass = targetSelect.value;
 let tracking = false;
-let videoElement = null;
 
-// تغيير لون الدائرة
-circleColor.addEventListener('input', ()=>circle.style.borderColor = circleColor.value);
+// تحديث خصائص الدائرة
+circleColor.addEventListener('input',()=>overlay.style.borderColor=circleColor.value);
+circleSize.addEventListener('input',()=>{overlay.style.width=circleSize.value+'px'; overlay.style.height=circleSize.value+'px';});
+targetSelect.addEventListener('change',()=>targetClass=targetSelect.value);
 
-// تحميل الموقع في iframe
-loadSiteBtn.addEventListener('click', ()=>{
-  let url = siteURL.value;
-  if(!/^https?:\/\//.test(url)) url = 'https://' + url;
-  iframe.src = url;
-});
+async function initModel(){
+  model = await cocoSsd.load();
+}
 
-// جعل الدائرة draggable
-let offsetX, offsetY, isDragging = false;
-circle.addEventListener('mousedown', (e)=>{
-  isDragging = true;
-  offsetX = e.clientX - circle.offsetLeft;
-  offsetY = e.clientY - circle.offsetTop;
-});
-document.addEventListener('mousemove', (e)=>{
-  if(isDragging){
-    circle.style.left = (e.clientX - offsetX) + 'px';
-    circle.style.top  = (e.clientY - offsetY) + 'px';
-  }
-});
-document.addEventListener('mouseup', ()=>{ isDragging = false; });
-
-// بدء التتبع
-startTrackingBtn.addEventListener('click', async ()=>{
-  if(!model) model = await cocoSsd.load();
-  if(!videoElement){
-    alert('تتبع العناصر عبر الفيديو فقط في النسخة التجريبية، كرر فتح فيديو داخل الصفحة.');
-    return;
-  }
-  tracking = true;
-  detectFrame();
-});
-
-// النسخة التجريبية: تتبع عنصر بصري في الفيديو
-async function detectFrame(){
+async function trackScreen(){
   if(!tracking) return;
-  const predictions = await model.detect(videoElement);
-  if(predictions.length > 0){
-    // أقرب عنصر لمركز الدائرة
-    const circleCenterX = circle.offsetLeft + circle.offsetWidth/2;
-    const circleCenterY = circle.offsetTop + circle.offsetHeight/2;
-    let closest = predictions[0];
-    let minDist = Infinity;
-    for(let p of predictions){
-      const [x,y,w,h] = p.bbox;
-      const cx = x + w/2;
-      const cy = y + h/2;
-      const dist = Math.hypot(circleCenterX-cx, circleCenterY-cy);
-      if(dist < minDist){
-        minDist = dist;
-        closest = p;
+
+  // Capture الشاشة
+  try{
+    const stream = await navigator.mediaDevices.getDisplayMedia({video:true});
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await video.play();
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    async function detectLoop(){
+      if(!tracking) { stream.getTracks().forEach(t=>t.stop()); return; }
+
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      const predictions = await model.detect(canvas);
+      let targetBox = null;
+
+      for(let p of predictions){
+        if(p.class===targetClass){
+          targetBox=p.bbox; break;
+        }
       }
+
+      if(targetBox){
+        const [x,y,w,h]=targetBox;
+        const scaleX = window.innerWidth/canvas.width;
+        const scaleY = window.innerHeight/canvas.height;
+
+        overlay.style.left=(x+w/2-overlay.offsetWidth/2)*scaleX+'px';
+        overlay.style.top=(y+h/2-overlay.offsetHeight/2)*scaleY+'px';
+      }
+
+      requestAnimationFrame(detectLoop);
     }
-    const [x,y,w,h] = closest.bbox;
-    circle.style.left = x + w/2 - circle.offsetWidth/2 + 'px';
-    circle.style.top  = y + h/2 - circle.offsetHeight/2 + 'px';
-  }
-  requestAnimationFrame(detectFrame);
+
+    detectLoop();
+
+  }catch(err){ console.error("خطأ في الوصول للشاشة:",err); }
 }
 
-</script>
-</body>
-</html>    if(videoCap){
-      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-      videoCap.read(src);
-      tracker = new cv.TrackerCSRT();
-      tracker.init(src, new cv.Rect(x,y,w,h));
-      src.delete();
-    }
-  }
-
-  if(tracker){
-    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    videoCap.read(src);
-    let rect = new cv.Rect();
-    let ok = tracker.update(src, rect);
-    if(ok){
-      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
-      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
-      info.innerText = `X:${Math.round(rect.x)}, Y:${Math.round(rect.y)}, W:${Math.round(rect.width)}, H:${Math.round(rect.height)}`;
-    } else {
-      info.innerText = 'فقد الهدف، يعاد التتبع تلقائياً...';
-      tracker = null;
-    }
-    src.delete();
-  }
-
-  requestAnimationFrame(detectAndTrack);
-}
-</script>
-
-</body>
-</html>
-  const predictions = await model.detect(video);
-  let targetBox = null;
-
-  for(let p of predictions){
-    if(p.class === targetClass){
-      targetBox = p.bbox; // [x,y,w,h]
-      break;
-    }
-  }
-
-  if(targetBox && !tracker){
-    let [x,y,w,h] = targetBox;
-    if(videoCap){
-      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-      videoCap.read(src);
-      tracker = new cv.TrackerCSRT();
-      tracker.init(src, new cv.Rect(x,y,w,h));
-      src.delete();
-    }
-  }
-
-  if(tracker){
-    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    videoCap.read(src);
-    let rect = new cv.Rect();
-    let ok = tracker.update(src, rect);
-    if(ok){
-      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
-      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
-      info.innerText = `X:${Math.round(rect.x)}, Y:${Math.round(rect.y)}, W:${Math.round(rect.width)}, H:${Math.round(rect.height)}`;
-    } else {
-      info.innerText = 'فقد الهدف، يعاد التتبع تلقائياً...';
-      tracker = null;
-    }
-    src.delete();
-  }
-
-  requestAnimationFrame(detectAndTrack);
-}
-
-init();
-</script>
-
-</body>
-</html>    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    videoCap.read(src);
-    tracker = new cv.TrackerCSRT();
-    let rect = new cv.Rect(x,y,w,h);
-    tracker.init(src, rect);
-    src.delete();
-  }
-
-  // تحديث التتبع
-  if(tracker){
-    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    videoCap.read(src);
-    let rect = new cv.Rect();
-    let ok = tracker.update(src, rect);
-    if(ok){
-      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
-      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
-      info.innerHTML = `X: ${Math.round(rect.x)}, Y: ${Math.round(rect.y)}, W: ${Math.round(rect.width)}, H: ${Math.round(rect.height)}`;
-    } else {
-      info.innerHTML = 'فقد الهدف، اضغط إعادة تعيين';
-      tracker = null;
-    }
-    src.delete();
-  }
-
-  requestAnimationFrame(detectAndTrack);
-}
+// بدء التتبع تلقائي
+startBtn.addEventListener('click', ()=>{
+  tracking = true;
+  if(!model) initModel().then(trackScreen);
+  else trackScreen();
+});
 </script>
 
 </body>
