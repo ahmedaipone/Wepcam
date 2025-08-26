@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع الأجسام</title>
+<title>تتبع الأجسام المحسّن</title>
 <style>
-  body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family: sans-serif; color:white; }
+  body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
   #video { position:absolute; width:100%; height:auto; }
   #overlayCircle {
     position:absolute;
@@ -15,9 +15,13 @@
     border:4px solid red;
     pointer-events:none;
     z-index:9999;
+    transition: all 0.05s linear;
   }
-  #controls { position:fixed; top:10px; left:10px; z-index:10000; }
-  select, input { padding:5px; margin:5px; }
+  #info {
+    position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px;
+  }
+  #controls { position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px; }
+  select, input, button { padding:5px; margin:5px; }
 </style>
 </head>
 <body>
@@ -32,12 +36,18 @@
     <option value="sports ball">كرة</option>
     <option value="car">سيارة</option>
     <option value="cat">حيوان</option>
-  </select>
+  </select><br>
+  <label>لون الدائرة:</label>
+  <input type="color" id="circleColor" value="#ff0000"><br>
+  <label>حجم الدائرة:</label>
+  <input type="range" id="circleSize" min="50" max="200" value="100"><br>
   <button id="startBtn">ابدأ التتبع</button>
+  <button id="resetBtn">إعادة تعيين التتبع</button>
 </div>
 
 <video id="video" playsinline></video>
 <div id="overlayCircle"></div>
+<div id="info"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -46,12 +56,18 @@
 <script>
 let video = document.getElementById('video');
 let circle = document.getElementById('overlayCircle');
+let info = document.getElementById('info');
 let targetClass = 'cup';
 let tracker = null;
 let model = null;
+let videoCap = null;
 
-document.getElementById('targetSelect').addEventListener('change', (e)=>{
-  targetClass = e.target.value;
+document.getElementById('targetSelect').addEventListener('change', (e)=>{ targetClass = e.target.value; });
+document.getElementById('circleColor').addEventListener('input', (e)=>{ circle.style.borderColor = e.target.value; });
+document.getElementById('circleSize').addEventListener('input', (e)=>{
+  let size = parseInt(e.target.value);
+  circle.style.width = size + 'px';
+  circle.style.height = size + 'px';
 });
 
 document.getElementById('videoFile').addEventListener('change', async (e)=>{
@@ -59,7 +75,12 @@ document.getElementById('videoFile').addEventListener('change', async (e)=>{
   if(file){
     video.src = URL.createObjectURL(file);
     await video.play();
+    videoCap = new cv.VideoCapture(video);
   }
+});
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  tracker = null;
 });
 
 document.getElementById('startBtn').addEventListener('click', async ()=>{
@@ -73,7 +94,7 @@ async function detectAndTrack(){
   const predictions = await model.detect(video);
   let targetBox = null;
 
-  // ابحث عن الجسم المطلوب
+  // ابحث عن الهدف المطلوب
   for(let p of predictions){
     if(p.class === targetClass){
       targetBox = p.bbox; // [x,y,w,h]
@@ -81,30 +102,30 @@ async function detectAndTrack(){
     }
   }
 
-  if(targetBox){
-    // ابدأ التتبع باستخدام OpenCV
-    if(!tracker){
-      let [x,y,w,h] = targetBox;
-      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-      let cap = new cv.VideoCapture(video);
-      cap.read(src);
-      tracker = new cv.TrackerCSRT();
-      let rect = new cv.Rect(x,y,w,h);
-      tracker.init(src, rect);
-      src.delete();
-    }
+  // ابدأ التتبع إذا تم اكتشاف الهدف
+  if(targetBox && !tracker){
+    let [x,y,w,h] = targetBox;
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    tracker = new cv.TrackerCSRT();
+    let rect = new cv.Rect(x,y,w,h);
+    tracker.init(src, rect);
+    src.delete();
   }
 
-  // تتبع بين الإطارات
+  // تحديث التتبع
   if(tracker){
     let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    let cap = new cv.VideoCapture(video);
-    cap.read(src);
+    videoCap.read(src);
     let rect = new cv.Rect();
     let ok = tracker.update(src, rect);
     if(ok){
       circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
       circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
+      info.innerHTML = `X: ${Math.round(rect.x)}, Y: ${Math.round(rect.y)}, W: ${Math.round(rect.width)}, H: ${Math.round(rect.height)}`;
+    } else {
+      info.innerHTML = 'فقد الهدف، اضغط إعادة تعيين';
+      tracker = null;
     }
     src.delete();
   }
@@ -112,5 +133,6 @@ async function detectAndTrack(){
   requestAnimationFrame(detectAndTrack);
 }
 </script>
+
 </body>
 </html>
