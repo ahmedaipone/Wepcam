@@ -3,14 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع جسم بالكاميرا</title>
+<title>تتبع جسم على فيديو</title>
 <style>
   body, html { margin: 0; padding: 0; overflow: hidden; background: black; font-family: sans-serif; }
   video {
     position: absolute;
     width: 100%;
     height: auto;
-    transform: scaleX(-1); /* انعكاس للمرايا */
+    top: 0;
+    left: 0;
   }
   #overlayCircle {
     position: absolute;
@@ -20,7 +21,7 @@
     border: 3px solid red;
     pointer-events: none;
   }
-  #selectorContainer {
+  #controls {
     position: absolute;
     top: 10px;
     left: 10px;
@@ -32,11 +33,10 @@
 </style>
 </head>
 <body>
-<video id="video" autoplay muted playsinline></video>
-<div id="overlayCircle"></div>
 
-<div id="selectorContainer">
-  تتبع:
+<div id="controls">
+  اختر الفيديو: <input type="file" id="videoInput" accept="video/*"><br><br>
+  تتبع: 
   <select id="objectSelector">
     <option value="person">شخص</option>
     <option value="sports ball">كرة</option>
@@ -47,6 +47,9 @@
   </select>
 </div>
 
+<video id="video" autoplay muted playsinline></video>
+<div id="overlayCircle"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
@@ -54,30 +57,42 @@
 const video = document.getElementById("video");
 const circle = document.getElementById("overlayCircle");
 const selector = document.getElementById("objectSelector");
+const videoInput = document.getElementById("videoInput");
 
 let selectedClass = selector.value;
 
-// تحديث الجسم عند تغيير الاختيار
 selector.addEventListener("change", () => {
   selectedClass = selector.value;
 });
 
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-  video.srcObject = stream;
-  return new Promise(resolve => video.onloadedmetadata = resolve);
-}
+let model;
 
-async function init() {
-  await startCamera();
-  const model = await cocoSsd.load();
-  detectFrame(model);
-}
+// تحميل نموذج Coco-SSD
+cocoSsd.load().then(loadedModel => {
+  model = loadedModel;
+});
 
-async function detectFrame(model) {
+// عند اختيار فيديو
+videoInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  video.src = url;
+  video.play();
+  video.onloadeddata = () => {
+    detectFrame();
+  }
+});
+
+// دالة التتبع
+async function detectFrame() {
+  if(video.paused || video.ended || !model) {
+    requestAnimationFrame(detectFrame);
+    return;
+  }
+
   const predictions = await model.detect(video);
-  
-  // البحث عن أول جسم مطابق للاختيار
+
   const target = predictions.find(p => p.class === selectedClass);
 
   if(target) {
@@ -86,10 +101,8 @@ async function detectFrame(model) {
     circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
   }
 
-  requestAnimationFrame(() => detectFrame(model));
+  requestAnimationFrame(detectFrame);
 }
-
-init();
 </script>
 </body>
 </html>
