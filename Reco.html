@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع الأجسام التلقائي</title>
+<title>تتبع الفيديو</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
   #video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; }
   #overlayCircle {
     position:absolute;
-    width:60px;  /* حجم أصغر */
+    width:60px;
     height:60px;
     border-radius:50%;
     border:3px solid red;
     pointer-events:none;
     z-index:9999;
-    transition: all 0.03s linear; /* حركة سلسة */
+    transition: all 0.03s linear;
   }
   #info {
     position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.6); padding:5px 10px; border-radius:5px;
@@ -47,7 +47,7 @@
 
 <video id="video" playsinline autoplay muted></video>
 <div id="overlayCircle"></div>
-<div id="info">جارٍ التحميل...</div>
+<div id="info">اختر الفيديو...</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -70,35 +70,22 @@ document.getElementById('circleSize').addEventListener('input', e => {
   circle.style.height = size + 'px';
 });
 
-// اختيار فيديو جاهز
 document.getElementById('videoFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   if(file){
     video.src = URL.createObjectURL(file);
     await video.play();
     videoCap = new cv.VideoCapture(video);
+
+    if(!model){
+      info.innerText = "جارٍ تحميل النموذج...";
+      model = await cocoSsd.load();
+      info.innerText = "تم التحميل، يبدأ التتبع تلقائياً";
+    }
+
+    detectAndTrack(); // يبدأ التتبع مباشرة
   }
 });
-
-// دالة بدء الكاميرا التلقائية إذا لم يتم اختيار فيديو
-async function startCamera() {
-  if(video.srcObject) return;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    video.srcObject = stream;
-    return new Promise(resolve => video.onloadedmetadata = resolve);
-  } catch(e){
-    info.innerText = "فشل الوصول إلى الكاميرا";
-  }
-}
-
-async function init() {
-  await startCamera();
-  info.innerText = "جارٍ تحميل النموذج...";
-  model = await cocoSsd.load();
-  info.innerText = "تم التحميل، يبدأ التتبع تلقائياً";
-  detectAndTrack();
-}
 
 async function detectAndTrack(){
   if(video.paused || video.ended) {
@@ -106,6 +93,49 @@ async function detectAndTrack(){
     return;
   }
 
+  const predictions = await model.detect(video);
+  let targetBox = null;
+
+  for(let p of predictions){
+    if(p.class === targetClass){
+      targetBox = p.bbox;
+      break;
+    }
+  }
+
+  if(targetBox && !tracker){
+    let [x,y,w,h] = targetBox;
+    if(videoCap){
+      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+      videoCap.read(src);
+      tracker = new cv.TrackerCSRT();
+      tracker.init(src, new cv.Rect(x,y,w,h));
+      src.delete();
+    }
+  }
+
+  if(tracker){
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    let rect = new cv.Rect();
+    let ok = tracker.update(src, rect);
+    if(ok){
+      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
+      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
+      info.innerText = `X:${Math.round(rect.x)}, Y:${Math.round(rect.y)}, W:${Math.round(rect.width)}, H:${Math.round(rect.height)}`;
+    } else {
+      info.innerText = 'فقد الهدف، يعاد التتبع تلقائياً...';
+      tracker = null;
+    }
+    src.delete();
+  }
+
+  requestAnimationFrame(detectAndTrack);
+}
+</script>
+
+</body>
+</html>
   const predictions = await model.detect(video);
   let targetBox = null;
 
