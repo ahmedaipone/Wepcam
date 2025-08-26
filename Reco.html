@@ -3,25 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع الأجسام المحسّن</title>
+<title>تتبع الأجسام التلقائي</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
-  #video { position:absolute; width:100%; height:auto; }
+  #video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; }
   #overlayCircle {
     position:absolute;
-    width:100px;
-    height:100px;
+    width:60px;  /* حجم أصغر */
+    height:60px;
     border-radius:50%;
-    border:4px solid red;
+    border:3px solid red;
     pointer-events:none;
     z-index:9999;
-    transition: all 0.05s linear;
+    transition: all 0.03s linear; /* حركة سلسة */
   }
   #info {
-    position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px;
+    position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.6); padding:5px 10px; border-radius:5px;
   }
-  #controls { position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px; }
-  select, input, button { padding:5px; margin:5px; }
+  #controls {
+    position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px;
+  }
+  select, input { padding:5px; margin:5px; }
 </style>
 </head>
 <body>
@@ -40,14 +42,12 @@
   <label>لون الدائرة:</label>
   <input type="color" id="circleColor" value="#ff0000"><br>
   <label>حجم الدائرة:</label>
-  <input type="range" id="circleSize" min="50" max="200" value="100"><br>
-  <button id="startBtn">ابدأ التتبع</button>
-  <button id="resetBtn">إعادة تعيين التتبع</button>
+  <input type="range" id="circleSize" min="50" max="200" value="60">
 </div>
 
-<video id="video" playsinline></video>
+<video id="video" playsinline autoplay muted></video>
 <div id="overlayCircle"></div>
-<div id="info"></div>
+<div id="info">جارٍ التحميل...</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -62,15 +62,16 @@ let tracker = null;
 let model = null;
 let videoCap = null;
 
-document.getElementById('targetSelect').addEventListener('change', (e)=>{ targetClass = e.target.value; });
-document.getElementById('circleColor').addEventListener('input', (e)=>{ circle.style.borderColor = e.target.value; });
-document.getElementById('circleSize').addEventListener('input', (e)=>{
+document.getElementById('targetSelect').addEventListener('change', e => { targetClass = e.target.value; });
+document.getElementById('circleColor').addEventListener('input', e => { circle.style.borderColor = e.target.value; });
+document.getElementById('circleSize').addEventListener('input', e => {
   let size = parseInt(e.target.value);
   circle.style.width = size + 'px';
   circle.style.height = size + 'px';
 });
 
-document.getElementById('videoFile').addEventListener('change', async (e)=>{
+// اختيار فيديو جاهز
+document.getElementById('videoFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   if(file){
     video.src = URL.createObjectURL(file);
@@ -79,22 +80,35 @@ document.getElementById('videoFile').addEventListener('change', async (e)=>{
   }
 });
 
-document.getElementById('resetBtn').addEventListener('click', ()=>{
-  tracker = null;
-});
+// دالة بدء الكاميرا التلقائية إذا لم يتم اختيار فيديو
+async function startCamera() {
+  if(video.srcObject) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = stream;
+    return new Promise(resolve => video.onloadedmetadata = resolve);
+  } catch(e){
+    info.innerText = "فشل الوصول إلى الكاميرا";
+  }
+}
 
-document.getElementById('startBtn').addEventListener('click', async ()=>{
-  if(!model) model = await cocoSsd.load();
+async function init() {
+  await startCamera();
+  info.innerText = "جارٍ تحميل النموذج...";
+  model = await cocoSsd.load();
+  info.innerText = "تم التحميل، يبدأ التتبع تلقائياً";
   detectAndTrack();
-});
+}
 
 async function detectAndTrack(){
-  if(video.paused || video.ended) return;
+  if(video.paused || video.ended) {
+    requestAnimationFrame(detectAndTrack);
+    return;
+  }
 
   const predictions = await model.detect(video);
   let targetBox = null;
 
-  // ابحث عن الهدف المطلوب
   for(let p of predictions){
     if(p.class === targetClass){
       targetBox = p.bbox; // [x,y,w,h]
@@ -102,10 +116,41 @@ async function detectAndTrack(){
     }
   }
 
-  // ابدأ التتبع إذا تم اكتشاف الهدف
   if(targetBox && !tracker){
     let [x,y,w,h] = targetBox;
+    if(videoCap){
+      let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+      videoCap.read(src);
+      tracker = new cv.TrackerCSRT();
+      tracker.init(src, new cv.Rect(x,y,w,h));
+      src.delete();
+    }
+  }
+
+  if(tracker){
     let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    let rect = new cv.Rect();
+    let ok = tracker.update(src, rect);
+    if(ok){
+      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
+      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
+      info.innerText = `X:${Math.round(rect.x)}, Y:${Math.round(rect.y)}, W:${Math.round(rect.width)}, H:${Math.round(rect.height)}`;
+    } else {
+      info.innerText = 'فقد الهدف، يعاد التتبع تلقائياً...';
+      tracker = null;
+    }
+    src.delete();
+  }
+
+  requestAnimationFrame(detectAndTrack);
+}
+
+init();
+</script>
+
+</body>
+</html>    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
     videoCap.read(src);
     tracker = new cv.TrackerCSRT();
     let rect = new cv.Rect(x,y,w,h);
