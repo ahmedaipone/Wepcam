@@ -17,6 +17,18 @@
     border-radius: 50%;
     border: 3px solid red;
     pointer-events: none;
+    transition: left 0.05s linear, top 0.05s linear; /* حركة سلسة */
+  }
+  #controls {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10000;
+    color: white;
+    font-family: sans-serif;
+    background: rgba(0,0,0,0.5);
+    padding: 8px;
+    border-radius: 6px;
   }
 </style>
 </head>
@@ -24,12 +36,25 @@
 <video id="video" autoplay muted playsinline></video>
 <div id="overlayCircle"></div>
 
+<div id="controls">
+  <label for="targetSelect">اختار الجسم:</label>
+  <select id="targetSelect">
+    <option value="person">Person</option>
+    <option value="sports ball">Sports Ball</option>
+    <option value="cat">Cat</option>
+    <option value="dog">Dog</option>
+    <option value="bottle">Bottle</option>
+    <option value="chair">Chair</option>
+  </select>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <script>
 const video = document.getElementById("video");
 const circle = document.getElementById("overlayCircle");
+const targetSelect = document.getElementById("targetSelect");
 
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -39,20 +64,20 @@ async function startCamera() {
 
 async function init() {
   await startCamera();
-
   const model = await cocoSsd.load();
   detectFrame(model);
 }
 
 async function detectFrame(model) {
   const predictions = await model.detect(video);
-  
-  if(predictions.length > 0) {
-    // نختار أول هدف مكتشف (تقدر تحدد نوع معين مثل 'person' أو 'sports ball')
-    const target = predictions[0].bbox; // [x, y, width, height]
+  const targetClass = targetSelect.value; // الجسم المطلوب تتبعه
+  const filtered = predictions.filter(p => p.class === targetClass);
+
+  if(filtered.length > 0) {
+    const target = filtered[0].bbox; // [x, y, width, height]
     const [x, y, w, h] = target;
 
-    // نحرك الدائرة لمركز الهدف
+    // تحريك الدائرة لمركز الجسم
     circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
     circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
   }
