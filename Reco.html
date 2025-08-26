@@ -3,32 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع أي جسم على الشاشة</title>
+<title>تتبع الأجسام من فيديو</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
-  video#screenVideo { position:absolute; top:0; left:0; width:100%; height:100%; }
+  #video { position:absolute; width:100%; height:auto; }
   #overlayCircle {
     position:absolute;
-    width:60px;
-    height:60px;
+    width:80px;
+    height:80px;
     border-radius:50%;
-    border:3px solid red;
+    border:4px solid red;
     pointer-events:none;
     z-index:9999;
     transition: all 0.05s linear;
   }
-  #controls {
-    position:fixed; top:10px; left:10px; z-index:10000;
-    background:rgba(0,0,0,0.6); padding:10px; border-radius:5px;
-  }
-  select, input, button { margin:5px 0; padding:5px; width:100%; }
+  #controls { position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px; }
+  select, input { padding:5px; margin:5px; }
 </style>
 </head>
 <body>
 
 <div id="controls">
-  <button id="startScreenBtn">اختر الشاشة للتتبع</button>
-  <label>اختر الجسم للتتبع:</label>
+  <input type="file" id="videoFile" accept="video/*"><br>
+  <label>اختر الجسم للتتبع: </label>
   <select id="targetSelect">
     <option value="cup">كوب</option>
     <option value="person">وجه</option>
@@ -36,64 +33,87 @@
     <option value="sports ball">كرة</option>
     <option value="car">سيارة</option>
     <option value="cat">حيوان</option>
-  </select>
+  </select><br>
   <label>لون الدائرة:</label>
-  <input type="color" id="circleColor" value="#ff0000">
+  <input type="color" id="circleColor" value="#ff0000"><br>
   <label>حجم الدائرة:</label>
-  <input type="range" id="circleSize" min="30" max="150" value="60">
+  <input type="range" id="circleSize" min="50" max="150" value="80">
 </div>
 
-<video id="screenVideo" autoplay muted playsinline></video>
+<video id="video" playsinline></video>
 <div id="overlayCircle"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 
 <script>
-let video = document.getElementById('screenVideo');
+let video = document.getElementById('video');
 let circle = document.getElementById('overlayCircle');
 let targetClass = 'cup';
+let tracker = null;
 let model = null;
+let videoCap = null;
 
-document.getElementById('targetSelect').addEventListener('change', e=>{ targetClass = e.target.value; });
-document.getElementById('circleColor').addEventListener('input', e=>{ circle.style.borderColor = e.target.value; });
-document.getElementById('circleSize').addEventListener('input', e=>{
+document.getElementById('targetSelect').addEventListener('change', (e)=>{ targetClass = e.target.value; });
+document.getElementById('circleColor').addEventListener('input', (e)=>{ circle.style.borderColor = e.target.value; });
+document.getElementById('circleSize').addEventListener('input', (e)=>{
   let size = parseInt(e.target.value);
   circle.style.width = size + 'px';
   circle.style.height = size + 'px';
 });
 
-// اختيار الشاشة
-document.getElementById('startScreenBtn').addEventListener('click', async ()=>{
-  try{
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video:true });
-    video.srcObject = stream;
+document.getElementById('videoFile').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(file){
+    video.src = URL.createObjectURL(file);
+    await video.play();
+    videoCap = new cv.VideoCapture(video);
+
     if(!model) model = await cocoSsd.load();
-    detectFrame();
-  }catch(err){ alert('لم يتم اختيار الشاشة'); }
+    detectAndTrack();
+  }
 });
 
-async function detectFrame(){
+async function detectAndTrack(){
   if(video.paused || video.ended) return;
+
   const predictions = await model.detect(video);
   let targetBox = null;
 
   for(let p of predictions){
     if(p.class === targetClass){
-      targetBox = p.bbox;
+      targetBox = p.bbox; // [x,y,w,h]
       break;
     }
   }
 
-  if(targetBox){
-    const [x,y,w,h] = targetBox;
-    circle.style.left = x + w/2 - circle.offsetWidth/2 + 'px';
-    circle.style.top  = y + h/2 - circle.offsetHeight/2 + 'px';
+  if(targetBox && !tracker){
+    let [x,y,w,h] = targetBox;
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    tracker = new cv.TrackerCSRT();
+    let rect = new cv.Rect(x,y,w,h);
+    tracker.init(src, rect);
+    src.delete();
   }
 
-  requestAnimationFrame(detectFrame);
+  if(tracker){
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    videoCap.read(src);
+    let rect = new cv.Rect();
+    let ok = tracker.update(src, rect);
+    if(ok){
+      circle.style.left = rect.x + rect.width/2 - circle.offsetWidth/2 + 'px';
+      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
+    } else {
+      tracker = null;
+    }
+    src.delete();
+  }
+
+  requestAnimationFrame(detectAndTrack);
 }
 </script>
-
 </body>
 </html>
