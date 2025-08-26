@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body, html { margin: 0; padding: 0; overflow: hidden; background: black; }
+  video {
+    width: 100%;
+    height: auto;
+  }
+  #overlayCircle {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    border: 3px solid red;
+    pointer-events: none; /* يسمح باللمس من خلف الدائرة */
+  }
+</style>
+</head>
+<body>
+<video id="video" autoplay muted playsinline></video>
+<div id="overlayCircle"></div>
+
+<script>
+  const video = document.getElementById("video");
+  const circle = document.getElementById("overlayCircle");
+
+  // تشغيل كاميرا الهاتف
+  navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+    video.srcObject = stream;
+  });
+
+  // تحريك الدائرة باللمس
+  let dragging = false;
+  circle.addEventListener('touchstart', e => { dragging = true; });
+  circle.addEventListener('touchend', e => { dragging = false; });
+  circle.addEventListener('touchmove', e => {
+    if(dragging) {
+      const touch = e.touches[0];
+      circle.style.left = (touch.clientX - 50) + 'px';
+      circle.style.top = (touch.clientY - 50) + 'px';
+    }
+  });
+</script>
+</body>
+</html>
