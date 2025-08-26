@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تتبع الكوب والفيديو</title>
+<title>تتبع يدوي + تلقائي</title>
 <style>
   body, html { margin:0; padding:0; background:#000; overflow:hidden; font-family:sans-serif; color:white; }
   #video { position:absolute; width:100%; height:auto; }
@@ -13,29 +13,24 @@
     height:60px;
     border-radius:50%;
     border:3px solid red;
-    pointer-events:none;
+    pointer-events:auto;
     z-index:9999;
+    cursor:grab;
     transition: all 0.03s linear;
   }
   #controls { position:fixed; top:10px; left:10px; z-index:10000; background:rgba(0,0,0,0.6); padding:10px; border-radius:5px; }
-  select, input { padding:5px; margin:5px; }
+  input, button { padding:5px; margin:5px; }
 </style>
 </head>
 <body>
 
 <div id="controls">
   <input type="file" id="videoFile" accept="video/*"><br>
-  <label>اختر الجسم للتتبع: </label>
-  <select id="targetSelect">
-    <option value="cup">كوب</option>
-    <option value="person">وجه</option>
-    <option value="doll">دمية</option>
-    <option value="sports ball">كرة</option>
-  </select><br>
   <label>لون الدائرة:</label>
   <input type="color" id="circleColor" value="#ff0000"><br>
   <label>حجم الدائرة:</label>
-  <input type="range" id="circleSize" min="30" max="120" value="60">
+  <input type="range" id="circleSize" min="30" max="120" value="60"><br>
+  <button id="startTrackBtn">ابدأ التتبع</button>
 </div>
 
 <video id="video" playsinline></video>
@@ -47,61 +42,79 @@
 <script>
 let video = document.getElementById('video');
 let circle = document.getElementById('overlayCircle');
-let targetClass = 'cup';
+let startTracking = false;
 let model = null;
+let targetClass = null; // سيتم تعيينه بعد الضغط على الزر
 
-document.getElementById('targetSelect').addEventListener('change', (e)=>{ targetClass = e.target.value; });
-document.getElementById('circleColor').addEventListener('input', (e)=>{ circle.style.borderColor = e.target.value; });
-document.getElementById('circleSize').addEventListener('input', (e)=>{
+// تعديل اللون والحجم
+document.getElementById('circleColor').addEventListener('input', e => circle.style.borderColor = e.target.value);
+document.getElementById('circleSize').addEventListener('input', e => {
   let size = parseInt(e.target.value);
   circle.style.width = size + 'px';
   circle.style.height = size + 'px';
 });
 
+// رفع الفيديو
 document.getElementById('videoFile').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
   if(file){
     video.src = URL.createObjectURL(file);
     await video.play();
     if(!model) model = await cocoSsd.load();
-    detectFrame();
   }
 });
 
+// سحب الدائرة باللمس/الفأرة
+let dragging = false;
+circle.addEventListener('mousedown', ()=>dragging=true);
+circle.addEventListener('mouseup', ()=>dragging=false);
+circle.addEventListener('mousemove', e=>{
+  if(dragging && !startTracking){
+    circle.style.left = e.pageX - circle.offsetWidth/2 + 'px';
+    circle.style.top  = e.pageY - circle.offsetHeight/2 + 'px';
+  }
+});
+
+// تفعيل التتبع
+document.getElementById('startTrackBtn').addEventListener('click', ()=>{
+  startTracking = true;
+  detectFrame();
+});
+
+// تتبع الهدف تلقائي
 async function detectFrame(){
-  if(video.paused || video.ended){
+  if(video.paused || video.ended) {
     requestAnimationFrame(detectFrame);
     return;
   }
+  
+  if(startTracking){
+    const predictions = await model.detect(video);
+    let bestBox = null;
+    const circleCenterX = circle.offsetLeft + circle.offsetWidth/2;
+    const circleCenterY = circle.offsetTop + circle.offsetHeight/2;
 
-  const predictions = await model.detect(video);
-  let targetBox = null;
-
-  for(let p of predictions){
-    if(p.class === targetClass){
-      targetBox = p.bbox; // [x,y,w,h]
-      break;
+    // نختار أقرب جسم لمكان الدائرة
+    let minDist = Infinity;
+    for(let p of predictions){
+      const [x,y,w,h] = p.bbox;
+      const cx = x + w/2;
+      const cy = y + h/2;
+      const dist = Math.hypot(cx - circleCenterX, cy - circleCenterY);
+      if(dist < minDist){
+        minDist = dist;
+        bestBox = p.bbox;
+      }
     }
-  }
 
-  if(targetBox){
-    let [x,y,w,h] = targetBox;
-    circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
-    circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
+    if(bestBox){
+      let [x,y,w,h] = bestBox;
+      circle.style.left = (x + w/2 - circle.offsetWidth/2) + 'px';
+      circle.style.top  = (y + h/2 - circle.offsetHeight/2) + 'px';
+    }
   }
 
   requestAnimationFrame(detectFrame);
-}
-</script>
-</body>
-</html>      circle.style.top  = rect.y + rect.height/2 - circle.offsetHeight/2 + 'px';
-    } else {
-      tracker = null;
-    }
-    src.delete();
-  }
-
-  requestAnimationFrame(detectAndTrack);
 }
 </script>
 </body>
