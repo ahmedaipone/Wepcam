@@ -44,7 +44,6 @@ let video = document.getElementById('video');
 let circle = document.getElementById('overlayCircle');
 let startTracking = false;
 let model = null;
-let targetClass = null; // سيتم تعيينه بعد الضغط على الزر
 
 // تعديل اللون والحجم
 document.getElementById('circleColor').addEventListener('input', e => circle.style.borderColor = e.target.value);
@@ -64,10 +63,11 @@ document.getElementById('videoFile').addEventListener('change', async (e)=>{
   }
 });
 
-// سحب الدائرة باللمس/الفأرة
+// سحب الدائرة باللمس/الفأرة لتحديد الجسم
 let dragging = false;
 circle.addEventListener('mousedown', ()=>dragging=true);
 circle.addEventListener('mouseup', ()=>dragging=false);
+circle.addEventListener('mouseleave', ()=>dragging=false);
 circle.addEventListener('mousemove', e=>{
   if(dragging && !startTracking){
     circle.style.left = e.pageX - circle.offsetWidth/2 + 'px';
@@ -81,7 +81,7 @@ document.getElementById('startTrackBtn').addEventListener('click', ()=>{
   detectFrame();
 });
 
-// تتبع الهدف تلقائي
+// تتبع الجسم الأقرب للدائرة
 async function detectFrame(){
   if(video.paused || video.ended) {
     requestAnimationFrame(detectFrame);
