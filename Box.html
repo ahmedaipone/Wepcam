@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head> <title>GeMy - Sandbox Escape Test</title> </head>
+<body>
+    <h1>اختبار ثغرة CVE-2026-7342</h1>
+    <script>
+        // الكود هنا بيحاول يضغط على الذاكرة عشان يسبب الـ Use-After-Free
+        for (let i = 0; i < 100; i++) {
+            // scripts and heavy allocations
+            var a = new Array(1000000);
+        }
+        // هنا ممكن تضيف كود تاني معين عشان يوصل للـ Use-After-Free
+        alert("Done");
+    </script>
+</body>
+</html>
